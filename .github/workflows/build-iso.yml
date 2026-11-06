@@ -4,50 +4,50 @@ on:
   workflow_dispatch:
     inputs:
       os_version:
-        description: 'Version de macOS à compiler'
+        description: 'Version de macOS (ex: 15.0, 15.1, 14.7)'
         required: true
         default: '15'
-        type: choice
-        options:
-          - '15'
-          - '14'
-          - '13'
 
 jobs:
   build:
     runs-on: macos-latest
 
     steps:
-      - name: Télécharger l'installateur macOS
+      - name: Installer mist-cli
         run: |
-          echo "Téléchargement de macOS ${{ github.event.inputs.os_version }}..."
-          softwareupdate --fetch-full-installer --full-installer-version ${{ github.event.inputs.os_version }}
+          brew install mist-cli
+
+      - name: Télécharger l'installateur complet macOS
+        run: |
+          echo "Recherche et téléchargement de l'installateur macOS ${{ github.event.inputs.os_version }} via Mist..."
+          # Télécharge l'application d'installation directement dans /Applications
+          sudo mist download installer "${{ github.event.inputs.os_version }}" application -o /Applications
           
           APP_PATH=$(find /Applications -maxdepth 1 -name "Install macOS*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "Erreur : installateur introuvable dans /Applications"
+            echo "Erreur : installateur introuvable après le téléchargement."
             exit 1
           fi
-          echo "Installateur détecté : $APP_PATH"
+          echo "Installateur présent dans : $APP_PATH"
           echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
 
-      - name: Préparer l'image disque vierge
+      - name: Créer le conteneur disque temporaire
         run: |
           hdiutil create -o /tmp/macOS -size 16384m -volname macos -layout SPUD -fs HFS+J
           hdiutil attach /tmp/macOS.dmg -noverify -mountpoint /Volumes/macos
 
-      - name: Écrire le média d'installation
+      - name: Générer le média d'installation
         run: |
           sudo "$APP_PATH/Contents/Resources/createinstallmedia" --volume /Volumes/macos --nointeraction
 
-      - name: Convertir en fichier ISO
+      - name: Convertir en ISO
         run: |
           hdiutil detach /Volumes/Install*
           hdiutil convert /tmp/macOS.dmg -format UDTO -o ./macos.cdr
           mv ./macos.cdr ./macos.iso
           ls -lh ./macos.iso
 
-      - name: Mettre à disposition l'ISO en Artifact
+      - name: Uploader l'ISO en Artifact
         uses: actions/upload-artifact@v4
         with:
           name: macOS-${{ github.event.inputs.os_version }}-ISO
