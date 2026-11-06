@@ -1,0 +1,55 @@
+name: Build macOS ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      os_version:
+        description: 'Version de macOS à compiler'
+        required: true
+        default: '15'
+        type: choice
+        options:
+          - '15'
+          - '14'
+          - '13'
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Télécharger l'installateur macOS
+        run: |
+          echo "Téléchargement de macOS ${{ github.event.inputs.os_version }}..."
+          softwareupdate --fetch-full-installer --full-installer-version ${{ github.event.inputs.os_version }}
+          
+          APP_PATH=$(find /Applications -maxdepth 1 -name "Install macOS*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Erreur : installateur introuvable dans /Applications"
+            exit 1
+          fi
+          echo "Installateur détecté : $APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+      - name: Préparer l'image disque vierge
+        run: |
+          hdiutil create -o /tmp/macOS -size 16384m -volname macos -layout SPUD -fs HFS+J
+          hdiutil attach /tmp/macOS.dmg -noverify -mountpoint /Volumes/macos
+
+      - name: Écrire le média d'installation
+        run: |
+          sudo "$APP_PATH/Contents/Resources/createinstallmedia" --volume /Volumes/macos --nointeraction
+
+      - name: Convertir en fichier ISO
+        run: |
+          hdiutil detach /Volumes/Install*
+          hdiutil convert /tmp/macOS.dmg -format UDTO -o ./macos.cdr
+          mv ./macos.cdr ./macos.iso
+          ls -lh ./macos.iso
+
+      - name: Mettre à disposition l'ISO en Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-${{ github.event.inputs.os_version }}-ISO
+          path: ./macos.iso
+          retention-days: 1
